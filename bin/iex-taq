@@ -1,0 +1,105 @@
+#!/usr/bin/env node
+
+'use strict';
+
+const io = require('socket.io-client');
+const moment = require('moment');
+
+const header = [
+    'Date',
+    'Timestamp',
+    'Instrument',
+    'Record Type',
+    'Bid Price',
+    'Bid Size',
+    'Ask Price',
+    'Ask Size',
+    'Trade Price',
+    'Trade Size',
+    'Trade Side',
+];
+
+function date(lastUpdated) {
+    return moment(lastUpdated).format('YYYY-MM-DD');
+}
+
+function timestamp(lastUpdated) {
+    return moment(lastUpdated).format('hh:mm:ss.SSS');
+}
+
+function price(value) {
+    return value ? value.toFixed(2) : '';
+}
+
+function quote(message) {
+    return [
+        date(message.lastUpdated),
+        timestamp(message.lastUpdated),
+        message.symbol,
+        'Q',
+        price(message.bidPrice), 
+        message.bidSize || '',
+        price(message.askPrice),
+        message.askSize || '',
+        '',
+        '',
+        '',
+    ];
+}
+
+function trade(message) {
+    return [
+        date(message.lastUpdated),
+        timestamp(message.lastUpdated),
+        message.symbol,
+        'T',
+        '',
+        '',
+        '',
+        '',
+        price(message.lastSalePrice),
+        message.lastSaleSize || '',
+        '',
+    ];
+}
+
+function log(record) {
+    console.log(record.join('\t'));
+}
+
+if (process.argv.length < 3) {
+    console.error('Usage: iex-taq <symbol> [<symbol> ...]');
+    process.exit(2);
+}
+
+const symbols = process.argv.slice(2);
+
+const socket = io('https://ws-api.iextrading.com/1.0/tops');
+
+let lastSaleTime = {};
+
+symbols.forEach((symbol) => {
+    lastSaleTime[symbol] = 0;
+});
+
+socket.on('message', (message) => {
+    if (message.lastSaleTime > lastSaleTime[message.symbol]) {
+        log(trade(message));
+
+        lastSaleTime[message.symbol] = message.lastSaleTime;
+    }
+
+    log(quote(message));
+});
+
+socket.on('connect', () => {
+    symbols.forEach((symbol) => {
+        socket.emit('subscribe', symbol);
+    });
+});
+
+socket.on('disconnect', () => {
+    process.exit(1);
+});
+
+log(header);
